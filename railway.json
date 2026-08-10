@@ -4,7 +4,6 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "python check_crous.py --loop 120",
+    "startCommand": "python check_crous.py --loop 120 --send-all",
     "restartPolicyType": "ALWAYS"
   }
-}
