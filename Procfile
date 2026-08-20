@@ -1,1 +1,1 @@
-worker: python check_crous.py --loop 120
+worker: python check_crous.py --loop 30
