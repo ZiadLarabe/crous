@@ -50,57 +50,66 @@ HEADERS = {
 
 # ---- Scraping ----------------------------------------------------------
 
-def fetch_listings(label, url):
-    """Récupère et parse tous les logements d'une page de recherche CROUS.
-    Ajoute un paramètre aléatoire pour éviter tout cache intermédiaire (CDN, proxy)."""
-    cache_buster = {"_": str(int(time.time() * 1000))}
-    resp = requests.get(url, headers=HEADERS, params=cache_buster, timeout=20)
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
-
+def fetch_listings(label, base_url):
+    """Récupère et parse TOUS les logements d'une recherche CROUS, en parcourant
+    automatiquement toutes les pages de résultats (pas seulement la première)."""
     listings = []
-    # Chaque logement est un <li> contenant un <h3><a href=".../accommodations/ID">
-    for card in soup.select("li"):
-        link = card.select_one("h3 a[href*='/accommodations/']")
-        if not link:
-            continue
+    page = 1
+    max_pages = 30  # garde-fou pour ne jamais boucler à l'infini
 
-        name = link.get_text(strip=True)
-        href = link.get("href", "")
-        m = re.search(r"/accommodations/(\d+)", href)
-        if not m:
-            continue
-        acc_id = m.group(1)
+    while page <= max_pages:
+        cache_buster = {"page": page, "_": str(int(time.time() * 1000))}
+        resp = requests.get(base_url, headers=HEADERS, params=cache_buster, timeout=20)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
 
-        # Adresse: généralement le texte juste après le titre, dans le même bloc
-        text_block = card.get_text(" ", strip=True)
+        page_cards = soup.select("li")
+        found_on_page = 0
 
-        # Prix (ex: "237 €")
-        price_match = re.search(r"([\d,\.]+)\s*€", text_block)
-        price = price_match.group(0) if price_match else "prix non précisé"
+        for card in page_cards:
+            link = card.select_one("h3 a[href*='/accommodations/']")
+            if not link:
+                continue
 
-        # Adresse: on cherche un motif "... code postal (5 chiffres) VILLE"
-        address_match = re.search(
-            r"([\d].{0,60}?\d{5}\s+[A-ZÀ-ÜÇ' \-]+)", text_block
-        )
-        address = address_match.group(1).strip() if address_match else "adresse non détectée"
+            name = link.get_text(strip=True)
+            href = link.get("href", "")
+            m = re.search(r"/accommodations/(\d+)", href)
+            if not m:
+                continue
+            acc_id = m.group(1)
 
-        # Surface (ex: "18 m²" ou "de 14 à 17,9 m²")
-        surface_match = re.search(r"(de\s+[\d,\.]+\s+à\s+[\d,\.]+\s*m²|[\d,\.]+\s*m²)", text_block)
-        surface = surface_match.group(1) if surface_match else "surface non précisée"
+            text_block = card.get_text(" ", strip=True)
 
-        full_url = href if href.startswith("http") else f"https://trouverunlogement.lescrous.fr{href}"
+            price_match = re.search(r"([\d,\.]+)\s*€", text_block)
+            price = price_match.group(0) if price_match else "prix non précisé"
 
-        listings.append({
-            "id": f"{label}:{acc_id}",
-            "name": name,
-            "text": text_block,
-            "price": price,
-            "address": address,
-            "surface": surface,
-            "url": full_url,
-            "year": label,
-        })
+            address_match = re.search(
+                r"([\d].{0,60}?\d{5}\s+[A-ZÀ-ÜÇ' \-]+)", text_block
+            )
+            address = address_match.group(1).strip() if address_match else "adresse non détectée"
+
+            surface_match = re.search(r"(de\s+[\d,\.]+\s+à\s+[\d,\.]+\s*m²|[\d,\.]+\s*m²)", text_block)
+            surface = surface_match.group(1) if surface_match else "surface non précisée"
+
+            full_url = href if href.startswith("http") else f"https://trouverunlogement.lescrous.fr{href}"
+
+            listings.append({
+                "id": f"{label}:{acc_id}",
+                "name": name,
+                "text": text_block,
+                "price": price,
+                "address": address,
+                "surface": surface,
+                "url": full_url,
+                "year": label,
+            })
+            found_on_page += 1
+
+        if found_on_page == 0:
+            # Page vide -> on a dépassé la dernière page, on arrête.
+            break
+
+        page += 1
 
     return listings
 
